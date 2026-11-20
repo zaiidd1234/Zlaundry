@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>ZLaundry Kiosk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css?family=Poppins:400,500,600,700,800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+<style>
+/* ============================================================
+   ZLaundry KIOSK -- tablet dinding toko.
+   Device BERSAMA (bukan device pribadi pelanggan): 2 layar doang --
+   (1) numpad kode bayar 4 digit, (2) tampilan QR. Gak ada state pribadi
+   yang disimpan sama sekali (localStorage dsb), gak ada login.
+   Lihat public/customer/app.js:bayarSemua() -- ini pasangannya di sisi HP.
+   ============================================================ */
+* { -webkit-tap-highlight-color: transparent; box-sizing: border-box; user-select: none; }
+:root {
+  --primary: #1d60af; --primary-dark: #154780; --primary-light: #e8f1fb;
+  --bg: #f4f7fa; --text: #1f2937; --text-muted: #64748b; --border: #e5e7eb;
+  --success: #10b981; --danger: #ef4444;
+}
+html, body { height: 100%; margin: 0; font-family: 'Poppins', sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
+#root { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; text-align: center; }
+
+.kiosk-header { position: fixed; top: 0; left: 0; right: 0; padding: 16px 24px; display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 18px; color: var(--primary-dark); }
+.kiosk-header i { font-size: 20px; }
+
+.screen { width: 100%; max-width: 480px; display: none; }
+.screen.active { display: block; }
+
+/* ---- ERROR (cabang gak dikenali) ---- */
+#scr-error i { font-size: 56px; color: var(--danger); }
+#scr-error h2 { margin: 16px 0 8px; font-size: 22px; }
+#scr-error p { color: var(--text-muted); font-size: 15px; }
+
+/* ---- NUMPAD ---- */
+#scr-numpad h2 { font-size: 24px; font-weight: 800; margin: 0 0 4px; }
+#scr-numpad .sub { color: var(--text-muted); font-size: 15px; margin-bottom: 22px; }
+.kode-boxes { display: flex; justify-content: center; gap: 12px; margin-bottom: 18px; }
+.kode-box { width: 56px; height: 68px; border: 2px solid var(--border); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 800; background: #fff; }
+.kode-box.filled { border-color: var(--primary); color: var(--primary); }
+.kode-error { min-height: 22px; color: var(--danger); font-size: 14px; font-weight: 600; margin-bottom: 10px; }
+.numpad-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; max-width: 320px; margin: 0 auto; }
+.numpad-btn { padding: 20px 0; font-size: 26px; font-weight: 700; border: none; border-radius: 16px; background: #fff; color: var(--text); box-shadow: 0 2px 6px rgba(0,0,0,.06); cursor: pointer; }
+.numpad-btn:active { background: var(--primary-light); color: var(--primary-dark); }
+.numpad-btn.num-clear, .numpad-btn.num-back { font-size: 16px; color: var(--text-muted); }
+.numpad-loading { margin-top: 16px; color: var(--text-muted); font-size: 14px; }
+
+/* ---- QR ---- */
+#scr-qr h2 { font-size: 20px; font-weight: 700; margin: 0 0 4px; }
+#scr-qr .amount { font-size: 26px; font-weight: 800; color: var(--primary); margin-bottom: 16px; }
+#scr-qr img { width: 320px; height: 320px; object-fit: contain; border: 1px solid var(--border); border-radius: 16px; padding: 12px; background: #fff; }
+#scr-qr .hint { color: var(--text-muted); font-size: 15px; margin-top: 16px; max-width: 380px; }
+#scr-qr .btn-selesai { margin-top: 22px; padding: 14px 28px; font-size: 16px; font-weight: 700; border: none; border-radius: 14px; background: var(--primary); color: #fff; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="kiosk-header"><i class="fas fa-shirt"></i> <span id="hdr-cabang">ZLaundry</span></div>
+<div id="root">
+
+  <div id="scr-error" class="screen">
+    <i class="fas fa-triangle-exclamation"></i>
+    <h2>Cabang tidak dikenali</h2>
+    <p>Hubungi kasir toko untuk mengecek pengaturan tablet ini.</p>
+  </div>
+
+  <div id="scr-numpad" class="screen">
+    <h2>Kode Bayar</h2>
+    <div class="sub">Masukkan 4 digit kode bayar dari HP kamu</div>
+    <div class="kode-boxes" id="kode-boxes"></div>
+    <div class="kode-error" id="kode-error"></div>
+    <div class="numpad-grid" id="numpad-grid"></div>
+    <div class="numpad-loading" id="numpad-loading" style="display:none;"><i class="fas fa-spinner fa-spin"></i> Mencari...</div>
+  </div>
+
+  <div id="scr-qr" class="screen">
+    <h2>Scan QRIS buat Bayar</h2>
+    <div class="amount" id="qr-amount">Rp0</div>
+    <img id="qr-img" src="" alt="QRIS" />
+    <div class="hint">Buka aplikasi mbanking / e-wallet kamu, scan QR di atas, lalu bayar. Cek status pembayaran di HP kamu sendiri.</div>
+    <button class="btn-selesai" onclick="kembaliKeNumpad()">Selesai / Kembali</button>
+  </div>
+
+</div>
+
+<script>
+const API = window.location.origin + '/api';
+const $ = (id) => document.getElementById(id);
+
+let CABANG = null; // { id, kode, nama }
+let kodeInput = '';
+let qrAutoResetTimer = null;
+
+function qs(name) {
+  return new URLSearchParams(window.location.search).get(name);
+}
+
+async function apiGet(path) {
+  const res = await fetch(API + path);
+  let json = null;
+  try { json = await res.json(); } catch (e) {}
+  if (!res.ok) {
+    const err = new Error((json && json.message) || `Error ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return json;
+}
+
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach((el) => el.classList.remove('active'));
+  $('scr-' + name).classList.add('active');
+}
+
+async function boot() {
+  const kode = (qs('cabang') || '').trim();
+  if (!kode) { showScreen('error'); return; }
+  try {
+    const res = await apiGet('/kiosk/cabang?kode=' + encodeURIComponent(kode));
+    CABANG = res.data;
+    $('hdr-cabang').textContent = CABANG.nama || 'ZLaundry';
+    renderNumpad();
+    showScreen('numpad');
+  } catch (e) {
+    showScreen('error');
+  }
+}
+
+function renderNumpad() {
+  const keys = ['1','2','3','4','5','6','7','8','9','clear','0','back'];
+  $('numpad-grid').innerHTML = keys.map((k) => {
+    if (k === 'clear') return `<button class="numpad-btn num-clear" onclick="numClear()">Hapus</button>`;
+    if (k === 'back') return `<button class="numpad-btn num-back" onclick="numBack()"><i class="fas fa-delete-left"></i></button>`;
+    return `<button class="numpad-btn" onclick="numPress('${k}')">${k}</button>`;
+  }).join('');
+  renderKodeBoxes();
+}
+
+function renderKodeBoxes() {
+  let html = '';
+  for (let i = 0; i < 4; i++) {
+    const ch = kodeInput[i] || '';
+    html += `<div class="kode-box ${ch ? 'filled' : ''}">${ch}</div>`;
+  }
+  $('kode-boxes').innerHTML = html;
+}
+
+function numPress(d) {
+  if (kodeInput.length >= 4) return;
+  kodeInput += d;
+  $('kode-error').textContent = '';
+  renderKodeBoxes();
+  if (kodeInput.length === 4) cariKode();
+}
+function numBack() {
+  kodeInput = kodeInput.slice(0, -1);
+  $('kode-error').textContent = '';
+  renderKodeBoxes();
+}
+function numClear() {
+  kodeInput = '';
+  $('kode-error').textContent = '';
+  renderKodeBoxes();
+}
+
+async function cariKode() {
+  $('numpad-loading').style.display = 'block';
+  try {
+    const res = await apiGet(`/kiosk/qris?cabang_id=${CABANG.id}&kode=${kodeInput}`);
+    tampilkanQr(res.data);
+  } catch (e) {
+    // #78: kalau kena batas percobaan (429), tampilkan pesan server
+    $('kode-error').textContent = e.status === 429 ? (e.message || 'Terlalu banyak kode salah. Tunggu beberapa menit.')
+      : 'Kode tidak ditemukan / sudah kadaluarsa. Coba generate kode baru dari HP kamu.';
+    kodeInput = '';
+    renderKodeBoxes();
+  } finally {
+    $('numpad-loading').style.display = 'none';
+  }
+}
+
+function tampilkanQr(sesi) {
+  $('qr-amount').textContent = 'Rp' + (Number(sesi.amount) || 0).toLocaleString('id-ID');
+  $('qr-img').src = sesi.qr_url || '';
+  showScreen('qr');
+  kodeInput = '';
+
+  // Auto balik ke numpad begitu QR-nya expired (biar tablet siap dipakai
+  // pelanggan berikutnya tanpa perlu ada yang mencet apa-apa).
+  if (qrAutoResetTimer) clearTimeout(qrAutoResetTimer);
+  if (sesi.expired_at) {
+    const ms = new Date(sesi.expired_at).getTime() - Date.now();
+    if (ms > 0) qrAutoResetTimer = setTimeout(kembaliKeNumpad, Math.min(ms, 30 * 60 * 1000));
+  }
+}
+
+function kembaliKeNumpad() {
+  if (qrAutoResetTimer) { clearTimeout(qrAutoResetTimer); qrAutoResetTimer = null; }
+  kodeInput = '';
+  renderKodeBoxes();
+  showScreen('numpad');
+}
+
+boot();
+</script>
+</body>
+</html>

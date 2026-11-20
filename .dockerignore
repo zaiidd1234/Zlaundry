@@ -1,0 +1,9 @@
+node_modules
+.env
+src/.env
+service-account.json
+*.sql
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
